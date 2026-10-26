@@ -53,7 +53,7 @@ async def initialize_mongo(uri: str) -> tuple[Any, Any]:
     client = AsyncMongoClient(uri, serverSelectionTimeoutMS=5000)
     await client.admin.command("ping")
     database = client.get_database("gridops")
-    collection = database["sensor_readings"]
+    collection = database["sensor_data"]
     await collection.create_index([("sensor_id", ASCENDING), ("timestamp", DESCENDING)])
     await collection.create_index([("timestamp", DESCENDING)])
     return client, database
