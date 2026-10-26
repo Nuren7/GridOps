@@ -1,5 +1,3 @@
-// API client for the FastAPI backend. Set VITE_API_URL to use the real backend;
-// when unset (or VITE_USE_MOCK=true) mock data is returned.
 export type SensorStatus = "ok" | "warning" | "critical" | "offline";
 
 export interface Sensor {
