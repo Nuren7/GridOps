@@ -294,7 +294,28 @@ async def test_summary_combines_sql_metadata_and_mongo_readings(
                                 "temperature": 22.4,
                                 "status": "warning",
                             },
-                        }
+                        },
+                        {
+                            "_id": "Sensor-A1",
+                            "reading": {
+                                "metrics": {"value": 23.7},
+                                "status": "normal",
+                            },
+                        },
+                        {
+                            "_id": "Sensor-B2",
+                            "reading": {
+                                "metrics": {"value": 45.2},
+                                "status": "normal",
+                            },
+                        },
+                        {
+                            "_id": "Sensor-C3",
+                            "reading": {
+                                "metrics": {"value": 1.1},
+                                "status": "normal",
+                            },
+                        },
                     ]
                 )
             return FakeCursor(
@@ -323,3 +344,8 @@ async def test_summary_combines_sql_metadata_and_mongo_readings(
     assert summary["sensors"][0]["status"] == "warning"
     assert summary["devices"][0]["id"] == "GW-1"
     assert summary["timeseries"][0]["humidity"] == 45.0
+    demo_sensors = {sensor["id"]: sensor for sensor in summary["sensors"]}
+    assert demo_sensors["Sensor-A1"]["value"] == 23.7
+    assert demo_sensors["Sensor-A1"]["status"] == "ok"
+    assert demo_sensors["Sensor-B2"]["value"] == 45.2
+    assert demo_sensors["Sensor-C3"]["value"] == 1.1

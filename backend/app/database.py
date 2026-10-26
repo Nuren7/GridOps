@@ -44,7 +44,7 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 def get_sensor_readings_collection(request: Request) -> AsyncCollection[Any]:
-    return request.app.state.mongo_database["sensor_readings"]
+    return request.app.state.mongo_database["sensor_data"]
 
 
 async def initialize_mongo(uri: str) -> tuple[Any, Any]:
@@ -52,12 +52,7 @@ async def initialize_mongo(uri: str) -> tuple[Any, Any]:
 
     client = AsyncMongoClient(uri, serverSelectionTimeoutMS=5000)
     await client.admin.command("ping")
-    database = client.get_default_database()
-    if database is None:
-        raise ValueError(
-            "MONGO_URI must include a database name, for example "
-            "mongodb+srv://user:password@cluster.example.net/gridops"
-        )
+    database = client.get_database("gridops")
     collection = database["sensor_readings"]
     await collection.create_index([("sensor_id", ASCENDING), ("timestamp", DESCENDING)])
     await collection.create_index([("timestamp", DESCENDING)])

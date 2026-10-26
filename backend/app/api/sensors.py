@@ -17,6 +17,12 @@ from app.schemas.sensor import (
 
 router = APIRouter(prefix="/sensors", tags=["sensors"])
 
+DEMO_SENSOR_METADATA = {
+    "Sensor-A1": ("Factory temperature", "Factory floor", "temperature", "°C"),
+    "Sensor-B2": ("Factory humidity", "Factory floor", "humidity", "%"),
+    "Sensor-C3": ("Machine vibration", "Factory floor", "vibration", "mm/s"),
+}
+
 
 @router.post("/data", status_code=status.HTTP_201_CREATED)
 async def receive_sensor_data(
@@ -37,28 +43,25 @@ async def get_sensor_summary(
     device_result = await session.execute(select(Device).order_by(Device.id))
     devices = device_result.scalars().all()
 
-    sensor_ids = [sensor.id for sensor in sensors]
     latest_readings: dict[str, dict] = {}
-    if sensor_ids:
-        latest_cursor = collection.aggregate(
-            [
-                {"$match": {"sensor_id": {"$in": sensor_ids}}},
-                {"$sort": {"timestamp": -1}},
-                {
-                    "$group": {
-                        "_id": "$sensor_id",
-                        "reading": {"$first": "$$ROOT"},
-                    }
-                },
-            ]
-        )
-        async for document in latest_cursor:
-            latest_readings[document["_id"]] = document["reading"]
+    latest_cursor = collection.aggregate(
+        [
+            {"$sort": {"timestamp": -1}},
+            {
+                "$group": {
+                    "_id": "$sensor_id",
+                    "reading": {"$first": "$$ROOT"},
+                }
+            },
+        ]
+    )
+    async for document in latest_cursor:
+        latest_readings[document["_id"]] = document["reading"]
 
     now = datetime.now(timezone.utc)
     time_cursor = collection.aggregate(
         [
-            {"$match": {"timestamp": {"$gte": now - timedelta(minutes=60)}}},
+            {"$match": {"timestamp": {"$gte": now - timedelta(hours=24)}}},
             {
                 "$group": {
                     "_id": {
@@ -68,8 +71,24 @@ async def get_sensor_summary(
                             "timezone": "UTC",
                         }
                     },
-                    "temperature": {"$avg": "$temperature"},
-                    "humidity": {"$avg": "$humidity"},
+                    "temperature": {
+                        "$avg": {
+                            "$cond": [
+                                {"$eq": ["$sensor_id", "Sensor-A1"]},
+                                {"$ifNull": ["$metrics.value", "$temperature"]},
+                                "$temperature",
+                            ]
+                        }
+                    },
+                    "humidity": {
+                        "$avg": {
+                            "$cond": [
+                                {"$eq": ["$sensor_id", "Sensor-B2"]},
+                                {"$ifNull": ["$metrics.value", "$humidity"]},
+                                "$humidity",
+                            ]
+                        }
+                    },
                 }
             },
             {"$sort": {"_id": 1}},
@@ -85,20 +104,42 @@ async def get_sensor_summary(
             )
         )
 
+    sensor_metadata = {
+        sensor.id: (
+            sensor.name,
+            sensor.machine,
+            sensor.sensor_type,
+            sensor.unit,
+        )
+        for sensor in sensors
+    }
+    for sensor_id, metadata in DEMO_SENSOR_METADATA.items():
+        if sensor_id in latest_readings:
+            sensor_metadata.setdefault(sensor_id, metadata)
+
     sensor_values = []
-    for sensor in sensors:
-        reading = latest_readings.get(sensor.id)
-        value = reading.get(sensor.sensor_type) if reading else None
+    for sensor_id, (name, machine, sensor_type, unit) in sensor_metadata.items():
+        reading = latest_readings.get(sensor_id)
+        value = (
+            reading.get(sensor_type)
+            if reading and reading.get(sensor_type) is not None
+            else reading.get("metrics", {}).get("value")
+            if reading
+            else None
+        )
+        reading_status = reading.get("status") if reading else None
         sensor_values.append(
             SensorValue(
-                id=sensor.id,
-                name=sensor.name,
-                machine=sensor.machine,
-                type=sensor.sensor_type,
+                id=sensor_id,
+                name=name,
+                machine=machine,
+                type=sensor_type,
                 value=value if value is not None else 0,
-                unit=sensor.unit,
+                unit=unit,
                 status=(
-                    reading.get("status") or "ok" if value is not None else "offline"
+                    ("ok" if reading_status == "normal" else reading_status or "ok")
+                    if value is not None
+                    else "offline"
                 ),
             )
         )
