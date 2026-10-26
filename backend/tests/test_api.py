@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import get_db_session, get_sensor_readings_collection
@@ -122,6 +123,119 @@ async def test_login_returns_a_jwt(
     assert response.status_code == 200
     assert response.json()["token_type"] == "bearer"
     assert response.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_registration_creates_a_user_with_a_hashed_password(
+    database_session: AsyncSession,
+) -> None:
+    async def override_session():
+        yield database_session
+
+    app.dependency_overrides[get_db_session] = override_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"username": "new-operator", "password": "safe-password"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "registered": True,
+        "username": "new-operator",
+    }
+    user = await database_session.scalar(
+        select(User).where(User.username == "new-operator")
+    )
+    assert user is not None
+    assert user.hashed_password != "safe-password"
+    assert password_hash.verify("safe-password", user.hashed_password)
+
+
+@pytest.mark.asyncio
+async def test_registration_rejects_an_existing_username(
+    database_session: AsyncSession,
+) -> None:
+    database_session.add(
+        User(
+            username="existing",
+            hashed_password=password_hash.hash("existing-password"),
+        )
+    )
+    await database_session.commit()
+
+    async def override_session():
+        yield database_session
+
+    app.dependency_overrides[get_db_session] = override_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"username": "existing", "password": "new-password"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Användarnamnet är upptaget"
+
+
+@pytest.mark.asyncio
+async def test_json_login_authenticates_registered_user(
+    database_session: AsyncSession,
+) -> None:
+    database_session.add(
+        User(
+            username="operator",
+            hashed_password=password_hash.hash("correct-password"),
+        )
+    )
+    await database_session.commit()
+
+    async def override_session():
+        yield database_session
+
+    app.dependency_overrides[get_db_session] = override_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "operator", "password": "correct-password"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": True, "username": "operator"}
+
+
+@pytest.mark.asyncio
+async def test_json_login_rejects_incorrect_credentials(
+    database_session: AsyncSession,
+) -> None:
+    database_session.add(
+        User(
+            username="operator",
+            hashed_password=password_hash.hash("correct-password"),
+        )
+    )
+    await database_session.commit()
+
+    async def override_session():
+        yield database_session
+
+    app.dependency_overrides[get_db_session] = override_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "operator", "password": "wrong-password"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Felaktigt användarnamn eller lösenord."
 
 
 @pytest.mark.asyncio

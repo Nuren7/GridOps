@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { clearToken, getSensorSummary, getToken, isMock, type SensorStatus } from "@/lib/api";
+import { clearToken, getSensorSummary, isLoggedIn, isMock, type SensorStatus } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -37,7 +37,7 @@ function Dashboard() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    if (!getToken()) navigate({ to: "/" });
+    if (!isLoggedIn()) navigate({ to: "/" });
     else setAuthed(true);
   }, [navigate]);
 
